@@ -1,0 +1,72 @@
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=DM+Sans:wght@300;400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --ink: #0D0D0F;
+  --paper: #F5F2ED;
+  --accent: #E84C2E;
+  --muted: #8B8B8B;
+  --border: #E2DDD6;
+  --success: #2A9D5C;
+  --warning: #E8A22E;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  background: var(--paper);
+  color: var(--ink);
+  font-family: 'DM Sans', sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+.mono {
+  font-family: 'JetBrains Mono', monospace;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+/* Fade-in animation */
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.fade-up {
+  animation: fadeUp 0.4s ease forwards;
+}
+
+/* Stagger children */
+.stagger > * { opacity: 0; animation: fadeUp 0.35s ease forwards; }
+.stagger > *:nth-child(1) { animation-delay: 0.05s; }
+.stagger > *:nth-child(2) { animation-delay: 0.1s; }
+.stagger > *:nth-child(3) { animation-delay: 0.15s; }
+.stagger > *:nth-child(4) { animation-delay: 0.2s; }
+.stagger > *:nth-child(5) { animation-delay: 0.25s; }
+.stagger > *:nth-child(6) { animation-delay: 0.3s; }
+
+/* Pulse dot */
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+.pulse-dot { animation: pulse-dot 1.5s ease-in-out infinite; }
+
+/* Loading shimmer */
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+.shimmer {
+  background: linear-gradient(90deg, #e8e4de 25%, #f0ece6 50%, #e8e4de 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+}
