@@ -38,40 +38,52 @@ func Connect() {
 }
 
 func Migrate() {
-	queries := []string{
-		`CREATE TABLE IF NOT EXISTS users (
-			id SERIAL PRIMARY KEY,
-			login VARCHAR(100) UNIQUE NOT NULL,
-			password_hash TEXT NOT NULL,
-			role VARCHAR(50) NOT NULL DEFAULT 'worker',
-			created_at TIMESTAMPTZ DEFAULT NOW()
-		)`,
-		`CREATE TABLE IF NOT EXISTS receipts (
-			id SERIAL PRIMARY KEY,
-			name VARCHAR(255) NOT NULL,
-			quantity NUMERIC(10,2) NOT NULL DEFAULT 0,
-			price NUMERIC(10,2) NOT NULL DEFAULT 0,
-			supplier VARCHAR(255),
-			date DATE NOT NULL,
-			image_url TEXT,
-			created_at TIMESTAMPTZ DEFAULT NOW()
-		)`,
-		`CREATE TABLE IF NOT EXISTS stock (
-			id SERIAL PRIMARY KEY,
-			name VARCHAR(255) UNIQUE NOT NULL,
-			quantity NUMERIC(10,2) NOT NULL DEFAULT 0,
-			last_updated TIMESTAMPTZ DEFAULT NOW()
-		)`,
-		`CREATE TABLE IF NOT EXISTS commands (
-			id SERIAL PRIMARY KEY,
-			name VARCHAR(255) NOT NULL,
-			quantity NUMERIC(10,2) NOT NULL DEFAULT 0,
-			price NUMERIC(10,2) NOT NULL DEFAULT 0,
-			date DATE NOT NULL,
-			status VARCHAR(50) DEFAULT 'pending',
-			created_at TIMESTAMPTZ DEFAULT NOW()
-		)`,
-	}
+queries := []string{
+	// USERS
+	`INSERT INTO users (login, password_hash, role) VALUES
+	('worker1', 'hash_worker1', 'worker'),
+	('worker2', 'hash_worker2', 'worker'),
+	('accountant1', 'hash_accountant1', 'accountant'),
+	('supervisor1', 'hash_supervisor1', 'supervisor');`,
+
+	// RECEIPTS (incoming stock)
+	`INSERT INTO receipts (name, quantity, price, supplier, date, image_url) VALUES
+	('Steel Bolts M8', 500, 0.12, 'Atlas Fasteners', '2026-03-01', 'img1.jpg'),
+	('Steel Bolts M8', 300, 0.11, 'Atlas Fasteners', '2026-03-15', 'img2.jpg'),
+	('Aluminum Sheets 2mm', 100, 25.50, 'MetalWorks Ltd', '2026-03-05', 'img3.jpg'),
+	('Copper Wire 10m', 200, 8.75, 'ElectroSupply', '2026-03-10', 'img4.jpg'),
+	('Industrial Glue', 150, 3.20, 'ChemSolutions', '2026-03-12', 'img5.jpg'),
+	('Packaging Boxes Large', 400, 1.10, 'PackIt', '2026-03-18', 'img6.jpg'),
+	('Safety Gloves', 250, 2.50, 'SafeGear', '2026-03-20', 'img7.jpg'),
+	('Steel Bolts M8', 600, 0.13, 'Atlas Fasteners', '2026-04-01', 'img8.jpg'),
+	('Copper Wire 10m', 180, 9.00, 'ElectroSupply', '2026-04-03', 'img9.jpg'),
+	('Industrial Glue', 200, 3.10, 'ChemSolutions', '2026-04-05', 'img10.jpg');`,
+
+	// STOCK (intentionally imperfect to simulate real-world mismatch)
+	`INSERT INTO stock (name, quantity) VALUES
+	('Steel Bolts M8', 900),
+	('Aluminum Sheets 2mm', 95),
+	('Copper Wire 10m', 320),
+	('Industrial Glue', 310),
+	('Packaging Boxes Large', 380),
+	('Safety Gloves', 200);`,
+
+	// COMMANDS (outgoing orders)
+	`INSERT INTO commands (name, quantity, price, date, status) VALUES
+	('Steel Bolts M8', 200, 0.25, '2026-03-08', 'completed'),
+	('Steel Bolts M8', 150, 0.26, '2026-03-22', 'completed'),
+	('Aluminum Sheets 2mm', 20, 40.00, '2026-03-25', 'completed'),
+	('Copper Wire 10m', 100, 12.00, '2026-03-28', 'completed'),
+	('Industrial Glue', 80, 5.50, '2026-03-30', 'completed'),
+	('Packaging Boxes Large', 120, 2.00, '2026-04-02', 'completed'),
+	('Safety Gloves', 50, 4.00, '2026-04-04', 'completed'),
+	('Steel Bolts M8', 300, 0.27, '2026-04-10', 'pending'),
+	('Copper Wire 10m', 120, 12.50, '2026-04-11', 'pending'),
+	('Industrial Glue', 150, 5.60, '2026-04-12', 'pending');`,
+
+	// OPTIONAL: simulate stock loss / mismatch
+	`UPDATE stock SET quantity = quantity - 20 WHERE name = 'Steel Bolts M8';`,
+}
 
 	for _, q := range queries {
 		if _, err := DB.Exec(q); err != nil {
