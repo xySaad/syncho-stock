@@ -1,184 +1,260 @@
-'use client'
+"use client";
 
-import { useCallback, useEffect, useState } from 'react'
-import DashboardLayout from '@/components/DashboardLayout'
+import { useCallback, useEffect, useState } from "react";
+import DashboardLayout from "@/components/DashboardLayout";
 import {
-  getStock, getReceipts, getCommands, createCommand,
-  getRecommendation, getAnalysis, createWebSocket,
-} from '@/lib/api'
-import toast from 'react-hot-toast'
-import { Plus, Loader2, RefreshCw, Sparkles, BarChart2, Package, ClipboardList, Receipt } from 'lucide-react'
-import ReactMarkdown from 'react-markdown'
+  getStock,
+  getReceipts,
+  getCommands,
+  createCommand,
+  getRecommendation,
+  getAnalysis,
+  createWebSocket,
+} from "@/lib/api";
+import toast from "react-hot-toast";
+import {
+  Plus,
+  Loader2,
+  RefreshCw,
+  Sparkles,
+  BarChart2,
+  Package,
+  ClipboardList,
+  Receipt,
+  X,
+} from "lucide-react";
+import ReactMarkdown from "react-markdown";
 
-type Tab = 'stock' | 'receipts' | 'commands' | 'recommend' | 'analysis'
+type Tab = "stock" | "receipts" | "commands" | "recommend" | "analysis";
 
-interface Stock { id: number; name: string; quantity: number; last_updated: string }
-interface ReceiptItem { id: number; name: string; quantity: number; price: number; supplier: string; date: string }
-interface Command { id: number; name: string; quantity: number; price: number; date: string; status: string }
-
-const NAV = [
-  { label: 'Dashboard', href: '/supervisor', icon: '🏠' },
-]
-
-const STATUS_COLORS: Record<string, string> = {
-  pending: '#E8A22E',
-  validated: '#2A9D5C',
-  rejected: '#E84C2E',
+interface Stock {
+  id: number;
+  name: string;
+  quantity: number;
+  last_updated: string;
+}
+interface ReceiptItem {
+  id: number;
+  name: string;
+  quantity: number;
+  price: number;
+  supplier: string;
+  date: string;
+}
+interface Command {
+  id: number;
+  name: string;
+  quantity: number;
+  price: number;
+  date: string;
+  status: string;
 }
 
-export default function SupervisorPage() {
-  const [tab, setTab] = useState<Tab>('stock')
-  const [stock, setStock] = useState<Stock[]>([])
-  const [receipts, setReceipts] = useState<ReceiptItem[]>([])
-  const [commands, setCommands] = useState<Command[]>([])
-  const [recommendation, setRecommendation] = useState<string | null>(null)
-  const [analysis, setAnalysis] = useState<string | null>(null)
-  const [aiLoading, setAiLoading] = useState(false)
-  const [wsConnected, setWsConnected] = useState(false)
-  const [loading, setLoading] = useState(false)
+const NAV = [{ label: "Dashboard", href: "/supervisor", icon: "⚡" }];
 
-  // New command form
-  const [showForm, setShowForm] = useState(false)
-  const [cmdForm, setCmdForm] = useState({ name: '', quantity: '', price: '' })
-  const [submitting, setSubmitting] = useState(false)
+const STATUS: Record<string, { label: string; cls: string }> = {
+  pending: { label: "Pending", cls: "badge-amber" },
+  validated: { label: "Validated", cls: "badge-green" },
+  rejected: { label: "Rejected", cls: "badge-red" },
+};
+
+export default function SupervisorPage() {
+  const [tab, setTab] = useState<Tab>("stock");
+  const [stock, setStock] = useState<Stock[]>([]);
+  const [receipts, setReceipts] = useState<ReceiptItem[]>([]);
+  const [commands, setCommands] = useState<Command[]>([]);
+  const [recommendation, setRecommendation] = useState<string | null>(null);
+  const [analysis, setAnalysis] = useState<string | null>(null);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [wsConnected, setWsConnected] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [showForm, setShowForm] = useState(false);
+  const [cmdForm, setCmdForm] = useState({ name: "", quantity: "", price: "" });
+  const [submitting, setSubmitting] = useState(false);
 
   const loadData = useCallback(async () => {
-    setLoading(true)
+    setLoading(true);
     try {
-      const [s, r, c] = await Promise.all([getStock(), getReceipts(), getCommands()])
-      setStock(s.data || [])
-      setReceipts(r.data || [])
-      setCommands(c.data || [])
+      const [s, r, c] = await Promise.all([
+        getStock(),
+        getReceipts(),
+        getCommands(),
+      ]);
+      setStock(s.data || []);
+      setReceipts(r.data || []);
+      setCommands(c.data || []);
     } catch {
-      toast.error('Failed to load data')
+      toast.error("Failed to load data");
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }, [])
+  }, []);
 
   useEffect(() => {
-    loadData()
+    loadData();
     const ws = createWebSocket((data: unknown) => {
-      const msg = data as { event: string; data: unknown }
-      if (msg.event === 'new_receipt') {
-        setReceipts((prev) => [msg.data as ReceiptItem, ...prev])
-        toast('🧾 New receipt scanned!')
+      const msg = data as { event: string; data: unknown };
+      if (msg.event === "new_receipt") {
+        setReceipts((prev) => [msg.data as ReceiptItem, ...prev]);
+        toast("🧾 New receipt scanned!");
       }
-      if (msg.event === 'command_updated') {
-        const updated = msg.data as { id: number; status: string }
+      if (msg.event === "command_updated") {
+        const updated = msg.data as { id: number; status: string };
         setCommands((prev) =>
-          prev.map((c) => (c.id === updated.id ? { ...c, status: updated.status } : c))
-        )
+          prev.map((c) =>
+            c.id === updated.id ? { ...c, status: updated.status } : c,
+          ),
+        );
       }
-    })
-    ws.onopen = () => setWsConnected(true)
-    ws.onclose = () => setWsConnected(false)
-    return () => ws.close()
-  }, [loadData])
+    });
+    ws.onopen = () => setWsConnected(true);
+    ws.onclose = () => setWsConnected(false);
+    return () => ws.close();
+  }, [loadData]);
 
   const handleCreateCommand = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setSubmitting(true)
+    e.preventDefault();
+    setSubmitting(true);
     try {
       const res = await createCommand({
         name: cmdForm.name,
         quantity: parseFloat(cmdForm.quantity),
         price: parseFloat(cmdForm.price),
-      })
-      setCommands((prev) => [res.data, ...prev])
-      setCmdForm({ name: '', quantity: '', price: '' })
-      setShowForm(false)
-      toast.success('Command created!')
+      });
+      setCommands((prev) => [res.data, ...prev]);
+      setCmdForm({ name: "", quantity: "", price: "" });
+      setShowForm(false);
+      toast.success("Command created!");
     } catch {
-      toast.error('Failed to create command')
+      toast.error("Failed to create command");
     } finally {
-      setSubmitting(false)
+      setSubmitting(false);
     }
-  }
-
-  const handleRecommendation = async () => {
-    setAiLoading(true)
-    try {
-      const res = await getRecommendation()
-      setRecommendation(res.data.recommendation)
-    } catch {
-      toast.error('AI request failed')
-    } finally {
-      setAiLoading(false)
-    }
-  }
-
-  const handleAnalysis = async () => {
-    setAiLoading(true)
-    try {
-      const res = await getAnalysis()
-      setAnalysis(res.data.analysis)
-    } catch {
-      toast.error('AI request failed')
-    } finally {
-      setAiLoading(false)
-    }
-  }
+  };
 
   const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
-    { id: 'stock', label: 'Stock', icon: <Package size={14} /> },
-    { id: 'receipts', label: 'Receipts', icon: <Receipt size={14} /> },
-    { id: 'commands', label: 'Commands', icon: <ClipboardList size={14} /> },
-    { id: 'recommend', label: 'AI Recommend', icon: <Sparkles size={14} /> },
-    { id: 'analysis', label: 'AI Analysis', icon: <BarChart2 size={14} /> },
-  ]
+    { id: "stock", label: "Stock", icon: <Package size={13} /> },
+    { id: "receipts", label: "Receipts", icon: <Receipt size={13} /> },
+    { id: "commands", label: "Commands", icon: <ClipboardList size={13} /> },
+    { id: "recommend", label: "AI Recommend", icon: <Sparkles size={13} /> },
+    { id: "analysis", label: "AI Analysis", icon: <BarChart2 size={13} /> },
+  ];
+
+  const KPIs = [
+    { label: "Stock Items", value: stock.length, color: "#F59E0B" },
+    { label: "Receipts", value: receipts.length, color: "#22D3EE" },
+    { label: "Commands", value: commands.length, color: "#A78BFA" },
+    {
+      label: "Pending",
+      value: commands.filter((c) => c.status === "pending").length,
+      color: "#F43F5E",
+    },
+  ];
 
   return (
-    <DashboardLayout navItems={NAV} title="Supervisor" roleColor="#7C5CFC" wsConnected={wsConnected}>
+    <DashboardLayout
+      navItems={NAV}
+      title="Supervisor"
+      roleColor="#A78BFA"
+      wsConnected={wsConnected}
+    >
       <div className="p-8 max-w-6xl mx-auto stagger">
         {/* Header */}
-        <div className="flex items-center justify-between mb-8">
+        <div className="flex items-start justify-between mb-8">
           <div>
-            <h1 className="text-3xl font-semibold mb-1">Supervisor Dashboard</h1>
-            <p className="text-sm" style={{ color: 'var(--muted)' }}>
-              Full inventory control with AI-powered insights.
+            <div className="flex items-center gap-2 mb-2">
+              <span
+                className="mono text-xs uppercase tracking-wider"
+                style={{ color: "var(--muted)" }}
+              >
+                ⚡ Full Access Dashboard
+              </span>
+            </div>
+            <h1
+              className="font-bold mb-1"
+              style={{ fontSize: 28, letterSpacing: "-0.5px" }}
+            >
+              Supervisor Control
+            </h1>
+            <p className="text-sm" style={{ color: "var(--muted-hi)" }}>
+              Real-time inventory management with AI-powered insights.
             </p>
           </div>
-          <div className="flex gap-2">
-            <button onClick={loadData} className="flex items-center gap-1.5 px-4 py-2 rounded text-sm" style={{ border: '1px solid var(--border)', background: '#fff' }}>
-              <RefreshCw size={13} /> Refresh
+          <div className="flex gap-2 mt-1">
+            <button
+              onClick={loadData}
+              className="btn btn-ghost text-xs py-2 px-3"
+            >
+              <RefreshCw size={12} /> Refresh
             </button>
             <button
               onClick={() => setShowForm(true)}
-              className="flex items-center gap-1.5 px-4 py-2 rounded text-sm font-semibold"
-              style={{ background: 'var(--ink)', color: '#fff' }}
+              className="btn btn-primary text-xs py-2 px-4"
             >
-              <Plus size={14} /> New Command
+              <Plus size={13} /> New Command
             </button>
           </div>
         </div>
 
         {/* KPIs */}
-        <div className="grid grid-cols-4 gap-4 mb-6">
-          {[
-            { label: 'Stock Items', value: stock.length, color: '#7C5CFC' },
-            { label: 'Total Receipts', value: receipts.length, color: '#2A9D5C' },
-            { label: 'Commands', value: commands.length, color: '#E8A22E' },
-            { label: 'Pending', value: commands.filter((c) => c.status === 'pending').length, color: '#E84C2E' },
-          ].map((kpi) => (
-            <div key={kpi.label} className="rounded-lg p-5" style={{ background: '#fff', border: '1px solid var(--border)' }}>
-              <div className="mono text-xs uppercase tracking-wider mb-1" style={{ color: 'var(--muted)' }}>{kpi.label}</div>
-              <div className="text-3xl font-semibold" style={{ color: kpi.color }}>{kpi.value}</div>
+        <div className="grid grid-cols-4 gap-4 mb-7">
+          {KPIs.map((kpi) => (
+            <div
+              key={kpi.label}
+              className="rounded-lg p-5 relative overflow-hidden"
+              style={{
+                background: "var(--surface)",
+                border: "1px solid var(--border)",
+              }}
+            >
+              <div
+                className="absolute top-0 left-0 w-full h-0.5"
+                style={{
+                  background: `linear-gradient(90deg, ${kpi.color}, transparent)`,
+                }}
+              />
+              <div
+                className="mono text-xs uppercase tracking-wider mb-2"
+                style={{ color: "var(--muted)" }}
+              >
+                {kpi.label}
+              </div>
+              <div
+                className="font-bold"
+                style={{
+                  fontSize: 32,
+                  letterSpacing: "-1.5px",
+                  color: kpi.color,
+                }}
+              >
+                {kpi.value}
+              </div>
             </div>
           ))}
         </div>
 
-        {/* Tabs */}
-        <div className="flex gap-1 mb-6 p-1 rounded-lg" style={{ background: '#fff', border: '1px solid var(--border)', width: 'fit-content' }}>
+        {/* Tab bar */}
+        <div
+          className="flex gap-0.5 mb-6 p-1 rounded-lg"
+          style={{
+            background: "var(--surface)",
+            border: "1px solid var(--border)",
+            width: "fit-content",
+          }}
+        >
           {TABS.map((t) => (
             <button
               key={t.id}
               onClick={() => setTab(t.id)}
-              className="flex items-center gap-2 px-4 py-2 rounded text-sm transition-all"
+              className="flex items-center gap-1.5 px-4 py-2 rounded text-xs transition-all"
               style={{
-                background: tab === t.id ? 'var(--ink)' : 'transparent',
-                color: tab === t.id ? '#fff' : 'var(--muted)',
+                background: tab === t.id ? "var(--raised)" : "transparent",
+                color: tab === t.id ? "var(--text)" : "var(--muted)",
                 fontWeight: tab === t.id ? 600 : 400,
+                border:
+                  tab === t.id
+                    ? "1px solid var(--border-hi)"
+                    : "1px solid transparent",
               }}
             >
               {t.icon} {t.label}
@@ -186,173 +262,354 @@ export default function SupervisorPage() {
           ))}
         </div>
 
-        {/* Content */}
-        <div className="rounded-lg" style={{ background: '#fff', border: '1px solid var(--border)', overflow: 'hidden' }}>
+        {/* Content panel */}
+        <div
+          className="rounded-lg overflow-hidden"
+          style={{
+            background: "var(--surface)",
+            border: "1px solid var(--border)",
+          }}
+        >
           {loading && (
-            <div className="p-8 space-y-3">
-              {[...Array(5)].map((_, i) => <div key={i} className="h-10 rounded shimmer" />)}
+            <div className="p-6 space-y-2">
+              {[...Array(5)].map((_, i) => (
+                <div key={i} className="h-10 rounded shimmer" />
+              ))}
             </div>
           )}
 
-          {/* Stock Tab */}
-          {!loading && tab === 'stock' && (
-            <table className="w-full text-sm">
+          {/* Stock */}
+          {!loading && tab === "stock" && (
+            <table className="data-table">
               <thead>
-                <tr style={{ borderBottom: '1px solid var(--border)', background: 'var(--paper)' }}>
-                  {['Product', 'Quantity', 'Last Updated'].map((h) => (
-                    <th key={h} className="mono text-xs px-6 py-4 text-left font-medium uppercase tracking-wider" style={{ color: 'var(--muted)' }}>{h}</th>
-                  ))}
+                <tr>
+                  <th>Product</th>
+                  <th>Quantity</th>
+                  <th>Last Updated</th>
                 </tr>
               </thead>
               <tbody>
                 {stock.length === 0 ? (
-                  <tr><td colSpan={3} className="text-center py-12 text-sm" style={{ color: 'var(--muted)' }}>No stock items</td></tr>
-                ) : stock.map((s, i) => (
-                  <tr key={s.id} style={{ borderBottom: '1px solid var(--border)', background: i % 2 ? '#fafaf8' : '#fff' }}>
-                    <td className="px-6 py-4 font-medium">{s.name}</td>
-                    <td className="px-6 py-4">
-                      <span
-                        className="mono text-xs px-2 py-1 rounded"
-                        style={{ background: s.quantity < 5 ? '#fcecea' : '#e8f5ee', color: s.quantity < 5 ? 'var(--accent)' : 'var(--success)' }}
-                      >
-                        {s.quantity}
-                      </span>
+                  <tr>
+                    <td
+                      colSpan={3}
+                      className="text-center py-12 text-sm"
+                      style={{ color: "var(--muted)" }}
+                    >
+                      No stock items
                     </td>
-                    <td className="px-6 py-4 mono text-xs" style={{ color: 'var(--muted)' }}>{new Date(s.last_updated).toLocaleString()}</td>
                   </tr>
-                ))}
+                ) : (
+                  stock.map((s) => (
+                    <tr key={s.id}>
+                      <td className="font-medium">{s.name}</td>
+                      <td>
+                        <span
+                          className={`badge ${s.quantity < 5 ? "badge-red" : "badge-green"}`}
+                        >
+                          {s.quantity}
+                        </span>
+                      </td>
+                      <td
+                        className="mono text-xs"
+                        style={{ color: "var(--muted)" }}
+                      >
+                        {new Date(s.last_updated).toLocaleString()}
+                      </td>
+                    </tr>
+                  ))
+                )}
               </tbody>
             </table>
           )}
 
-          {/* Receipts Tab */}
-          {!loading && tab === 'receipts' && (
-            <table className="w-full text-sm">
+          {/* Receipts */}
+          {!loading && tab === "receipts" && (
+            <table className="data-table">
               <thead>
-                <tr style={{ borderBottom: '1px solid var(--border)', background: 'var(--paper)' }}>
-                  {['Product', 'Qty', 'Price', 'Supplier', 'Date'].map((h) => (
-                    <th key={h} className="mono text-xs px-6 py-4 text-left font-medium uppercase tracking-wider" style={{ color: 'var(--muted)' }}>{h}</th>
-                  ))}
+                <tr>
+                  <th>Product</th>
+                  <th>Qty</th>
+                  <th>Price</th>
+                  <th>Supplier</th>
+                  <th>Date</th>
                 </tr>
               </thead>
               <tbody>
                 {receipts.length === 0 ? (
-                  <tr><td colSpan={5} className="text-center py-12 text-sm" style={{ color: 'var(--muted)' }}>No receipts</td></tr>
-                ) : receipts.map((r, i) => (
-                  <tr key={r.id} style={{ borderBottom: '1px solid var(--border)', background: i % 2 ? '#fafaf8' : '#fff' }}>
-                    <td className="px-6 py-4 font-medium">{r.name}</td>
-                    <td className="px-6 py-4 mono text-xs">{r.quantity}</td>
-                    <td className="px-6 py-4 mono text-xs">${r.price.toFixed(2)}</td>
-                    <td className="px-6 py-4 text-xs" style={{ color: 'var(--muted)' }}>{r.supplier}</td>
-                    <td className="px-6 py-4 mono text-xs">{new Date(r.date).toLocaleDateString()}</td>
+                  <tr>
+                    <td
+                      colSpan={5}
+                      className="text-center py-12 text-sm"
+                      style={{ color: "var(--muted)" }}
+                    >
+                      No receipts
+                    </td>
                   </tr>
-                ))}
+                ) : (
+                  receipts.map((r) => (
+                    <tr key={r.id}>
+                      <td className="font-medium">{r.name}</td>
+                      <td className="mono text-xs">{r.quantity}</td>
+                      <td
+                        className="mono text-xs"
+                        style={{ color: "var(--accent)" }}
+                      >
+                        ${r.price.toFixed(2)}
+                      </td>
+                      <td
+                        className="text-xs"
+                        style={{ color: "var(--muted-hi)" }}
+                      >
+                        {r.supplier}
+                      </td>
+                      <td
+                        className="mono text-xs"
+                        style={{ color: "var(--muted)" }}
+                      >
+                        {new Date(r.date).toLocaleDateString()}
+                      </td>
+                    </tr>
+                  ))
+                )}
               </tbody>
             </table>
           )}
 
-          {/* Commands Tab */}
-          {!loading && tab === 'commands' && (
-            <table className="w-full text-sm">
+          {/* Commands */}
+          {!loading && tab === "commands" && (
+            <table className="data-table">
               <thead>
-                <tr style={{ borderBottom: '1px solid var(--border)', background: 'var(--paper)' }}>
-                  {['Product', 'Qty', 'Price', 'Date', 'Status'].map((h) => (
-                    <th key={h} className="mono text-xs px-6 py-4 text-left font-medium uppercase tracking-wider" style={{ color: 'var(--muted)' }}>{h}</th>
-                  ))}
+                <tr>
+                  <th>Product</th>
+                  <th>Qty</th>
+                  <th>Price</th>
+                  <th>Date</th>
+                  <th>Status</th>
                 </tr>
               </thead>
               <tbody>
                 {commands.length === 0 ? (
-                  <tr><td colSpan={5} className="text-center py-12 text-sm" style={{ color: 'var(--muted)' }}>No commands</td></tr>
-                ) : commands.map((cmd, i) => (
-                  <tr key={cmd.id} style={{ borderBottom: '1px solid var(--border)', background: i % 2 ? '#fafaf8' : '#fff' }}>
-                    <td className="px-6 py-4 font-medium">{cmd.name}</td>
-                    <td className="px-6 py-4 mono text-xs">{cmd.quantity}</td>
-                    <td className="px-6 py-4 mono text-xs">${cmd.price.toFixed(2)}</td>
-                    <td className="px-6 py-4 mono text-xs">{new Date(cmd.date).toLocaleDateString()}</td>
-                    <td className="px-6 py-4">
-                      <span
-                        className="mono text-xs px-2 py-1 rounded font-medium capitalize"
-                        style={{ background: `${STATUS_COLORS[cmd.status]}22`, color: STATUS_COLORS[cmd.status] }}
-                      >
-                        {cmd.status}
-                      </span>
+                  <tr>
+                    <td
+                      colSpan={5}
+                      className="text-center py-12 text-sm"
+                      style={{ color: "var(--muted)" }}
+                    >
+                      No commands
                     </td>
                   </tr>
-                ))}
+                ) : (
+                  commands.map((cmd) => {
+                    const st = STATUS[cmd.status] ?? {
+                      label: cmd.status,
+                      cls: "badge-cyan",
+                    };
+                    return (
+                      <tr key={cmd.id}>
+                        <td className="font-medium">{cmd.name}</td>
+                        <td className="mono text-xs">{cmd.quantity}</td>
+                        <td
+                          className="mono text-xs"
+                          style={{ color: "var(--accent)" }}
+                        >
+                          ${cmd.price.toFixed(2)}
+                        </td>
+                        <td
+                          className="mono text-xs"
+                          style={{ color: "var(--muted)" }}
+                        >
+                          {new Date(cmd.date).toLocaleDateString()}
+                        </td>
+                        <td>
+                          <span className={`badge ${st.cls}`}>{st.label}</span>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
               </tbody>
             </table>
           )}
 
           {/* AI Recommendation */}
-          {tab === 'recommend' && (
-            <div className="p-8">
-              <div className="flex items-center gap-3 mb-6">
-                <Sparkles size={20} style={{ color: '#7C5CFC' }} />
-                <div>
-                  <h3 className="font-semibold">AI Restocking Recommendations</h3>
-                  <p className="text-xs" style={{ color: 'var(--muted)' }}>Analyze current stock and suggest optimal orders</p>
+          {tab === "recommend" && (
+            <div className="p-7">
+              <div className="flex items-center justify-between mb-6">
+                <div className="flex items-center gap-3">
+                  <div
+                    className="w-9 h-9 rounded-lg flex items-center justify-center"
+                    style={{
+                      background: "#A78BFA18",
+                      border: "1px solid #A78BFA25",
+                    }}
+                  >
+                    <Sparkles size={17} style={{ color: "#A78BFA" }} />
+                  </div>
+                  <div>
+                    <div className="font-semibold text-sm">
+                      AI Restocking Recommendations
+                    </div>
+                    <div className="text-xs" style={{ color: "var(--muted)" }}>
+                      Analyze current stock and suggest optimal orders
+                    </div>
+                  </div>
                 </div>
                 <button
-                  onClick={handleRecommendation}
+                  onClick={async () => {
+                    setAiLoading(true);
+                    try {
+                      const res = await getRecommendation();
+                      setRecommendation(res.data.recommendation);
+                    } catch {
+                      toast.error("AI request failed");
+                    } finally {
+                      setAiLoading(false);
+                    }
+                  }}
                   disabled={aiLoading}
-                  className="ml-auto flex items-center gap-2 px-5 py-2.5 rounded font-semibold text-sm"
-                  style={{ background: '#7C5CFC', color: '#fff', opacity: aiLoading ? 0.6 : 1 }}
+                  className="btn py-2 px-5 text-xs"
+                  style={{
+                    background: "#A78BFA",
+                    color: "#000",
+                    fontWeight: 600,
+                  }}
                 >
-                  {aiLoading ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
-                  {recommendation ? 'Regenerate' : 'Generate Recommendations'}
+                  {aiLoading ? (
+                    <Loader2 size={13} className="animate-spin" />
+                  ) : (
+                    <Sparkles size={13} />
+                  )}
+                  {recommendation ? "Regenerate" : "Generate"}
                 </button>
               </div>
+
               {aiLoading && !recommendation && (
-                <div className="flex items-center gap-3 py-12 justify-center" style={{ color: 'var(--muted)' }}>
-                  <Loader2 size={20} className="animate-spin" /> Analyzing inventory data...
+                <div
+                  className="flex items-center justify-center gap-3 py-14"
+                  style={{ color: "var(--muted-hi)" }}
+                >
+                  <Loader2
+                    size={18}
+                    className="animate-spin"
+                    style={{ color: "#A78BFA" }}
+                  />
+                  Analyzing inventory data...
                 </div>
               )}
               {recommendation && (
-                <div className="prose prose-sm max-w-none p-5 rounded-lg" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
+                <div
+                  className="rounded-lg p-5 prose prose-sm prose-invert max-w-none"
+                  style={{
+                    background: "var(--raised)",
+                    border: "1px solid var(--border-hi)",
+                    fontSize: 13,
+                    lineHeight: 1.8,
+                  }}
+                >
                   <ReactMarkdown>{recommendation}</ReactMarkdown>
                 </div>
               )}
               {!recommendation && !aiLoading && (
-                <div className="text-center py-12" style={{ color: 'var(--muted)' }}>
-                  Click "Generate Recommendations" to get AI-powered restocking suggestions
+                <div
+                  className="text-center py-14"
+                  style={{ color: "var(--muted)" }}
+                >
+                  <p className="text-sm">
+                    Click "Generate" to get AI-powered restocking suggestions
+                  </p>
                 </div>
               )}
             </div>
           )}
 
           {/* AI Analysis */}
-          {tab === 'analysis' && (
-            <div className="p-8">
-              <div className="flex items-center gap-3 mb-6">
-                <BarChart2 size={20} style={{ color: '#2A9D5C' }} />
-                <div>
-                  <h3 className="font-semibold">AI Stock Analysis</h3>
-                  <p className="text-xs" style={{ color: 'var(--muted)' }}>Deep analysis of your inventory health and trends</p>
+          {tab === "analysis" && (
+            <div className="p-7">
+              <div className="flex items-center justify-between mb-6">
+                <div className="flex items-center gap-3">
+                  <div
+                    className="w-9 h-9 rounded-lg flex items-center justify-center"
+                    style={{
+                      background: "#22D3EE12",
+                      border: "1px solid #22D3EE25",
+                    }}
+                  >
+                    <BarChart2 size={17} style={{ color: "#22D3EE" }} />
+                  </div>
+                  <div>
+                    <div className="font-semibold text-sm">
+                      AI Stock Analysis
+                    </div>
+                    <div className="text-xs" style={{ color: "var(--muted)" }}>
+                      Deep analysis of inventory health and trends
+                    </div>
+                  </div>
                 </div>
                 <button
-                  onClick={handleAnalysis}
+                  onClick={async () => {
+                    setAiLoading(true);
+                    try {
+                      const res = await getAnalysis();
+                      setAnalysis(res.data.analysis);
+                    } catch {
+                      toast.error("AI request failed");
+                    } finally {
+                      setAiLoading(false);
+                    }
+                  }}
                   disabled={aiLoading}
-                  className="ml-auto flex items-center gap-2 px-5 py-2.5 rounded font-semibold text-sm"
-                  style={{ background: '#2A9D5C', color: '#fff', opacity: aiLoading ? 0.6 : 1 }}
+                  className="btn py-2 px-5 text-xs"
+                  style={{
+                    background: "#22D3EE",
+                    color: "#000",
+                    fontWeight: 600,
+                  }}
                 >
-                  {aiLoading ? <Loader2 size={14} className="animate-spin" /> : <BarChart2 size={14} />}
-                  {analysis ? 'Regenerate' : 'Run Analysis'}
+                  {aiLoading ? (
+                    <Loader2 size={13} className="animate-spin" />
+                  ) : (
+                    <BarChart2 size={13} />
+                  )}
+                  {analysis ? "Regenerate" : "Run Analysis"}
                 </button>
               </div>
+
               {aiLoading && !analysis && (
-                <div className="flex items-center gap-3 py-12 justify-center" style={{ color: 'var(--muted)' }}>
-                  <Loader2 size={20} className="animate-spin" /> Running stock analysis...
+                <div
+                  className="flex items-center justify-center gap-3 py-14"
+                  style={{ color: "var(--muted-hi)" }}
+                >
+                  <Loader2
+                    size={18}
+                    className="animate-spin"
+                    style={{ color: "#22D3EE" }}
+                  />
+                  Running stock analysis...
                 </div>
               )}
               {analysis && (
-                <div className="prose prose-sm max-w-none p-5 rounded-lg" style={{ background: 'var(--paper)', color: 'var(--ink)' }}>
+                <div
+                  className="rounded-lg p-5 prose prose-sm prose-invert max-w-none"
+                  style={{
+                    background: "var(--raised)",
+                    border: "1px solid var(--border-hi)",
+                    fontSize: 13,
+                    lineHeight: 1.8,
+                  }}
+                >
                   <ReactMarkdown>{analysis}</ReactMarkdown>
                 </div>
               )}
               {!analysis && !aiLoading && (
-                <div className="text-center py-12" style={{ color: 'var(--muted)' }}>
-                  Click "Run Analysis" to get a comprehensive stock health report
+                <div
+                  className="text-center py-14"
+                  style={{ color: "var(--muted)" }}
+                >
+                  <p className="text-sm">
+                    Click "Run Analysis" to get a comprehensive stock health
+                    report
+                  </p>
                 </div>
               )}
             </div>
@@ -364,49 +621,106 @@ export default function SupervisorPage() {
       {showForm && (
         <div
           className="fixed inset-0 flex items-center justify-center z-50"
-          style={{ background: 'rgba(0,0,0,0.5)' }}
-          onClick={(e) => { if (e.target === e.currentTarget) setShowForm(false) }}
+          style={{ background: "rgba(0,0,0,0.7)", backdropFilter: "blur(4px)" }}
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setShowForm(false);
+          }}
         >
-          <div className="rounded-xl p-8 w-full max-w-md fade-up" style={{ background: '#fff' }}>
-            <h3 className="text-xl font-semibold mb-6">Create New Command</h3>
+          <div
+            className="rounded-xl p-7 w-full max-w-md fade-up relative"
+            style={{
+              background: "var(--surface)",
+              border: "1px solid var(--border-hi)",
+            }}
+          >
+            <div
+              className="absolute top-0 left-0 w-full h-0.5 rounded-t-xl"
+              style={{
+                background: "linear-gradient(90deg, #A78BFA, transparent)",
+              }}
+            />
+            <div className="flex items-center justify-between mb-6">
+              <h3 className="font-bold text-lg">Create Command</h3>
+              <button
+                onClick={() => setShowForm(false)}
+                className="w-7 h-7 rounded flex items-center justify-center transition-colors"
+                style={{ color: "var(--muted)" }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = "var(--raised)";
+                  e.currentTarget.style.color = "var(--text)";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = "";
+                  e.currentTarget.style.color = "var(--muted)";
+                }}
+              >
+                <X size={15} />
+              </button>
+            </div>
+
             <form onSubmit={handleCreateCommand} className="space-y-4">
               {[
-                { label: 'Product Name', key: 'name', type: 'text', placeholder: 'e.g. Steel Bolts M6' },
-                { label: 'Quantity', key: 'quantity', type: 'number', placeholder: '0' },
-                { label: 'Unit Price ($)', key: 'price', type: 'number', placeholder: '0.00' },
+                {
+                  label: "Product Name",
+                  key: "name",
+                  type: "text",
+                  placeholder: "e.g. Steel Bolts M6",
+                },
+                {
+                  label: "Quantity",
+                  key: "quantity",
+                  type: "number",
+                  placeholder: "0",
+                },
+                {
+                  label: "Unit Price ($)",
+                  key: "price",
+                  type: "number",
+                  placeholder: "0.00",
+                },
               ].map(({ label, key, type, placeholder }) => (
                 <div key={key}>
-                  <label className="mono text-xs uppercase tracking-wider mb-2 block" style={{ color: 'var(--muted)' }}>{label}</label>
+                  <label
+                    className="mono text-xs uppercase tracking-wider mb-2 block"
+                    style={{ color: "var(--muted)" }}
+                  >
+                    {label}
+                  </label>
                   <input
                     type={type}
-                    step={type === 'number' ? '0.01' : undefined}
+                    step={type === "number" ? "0.01" : undefined}
                     value={cmdForm[key as keyof typeof cmdForm]}
-                    onChange={(e) => setCmdForm({ ...cmdForm, [key]: e.target.value })}
+                    onChange={(e) =>
+                      setCmdForm({ ...cmdForm, [key]: e.target.value })
+                    }
                     placeholder={placeholder}
                     required
-                    className="w-full px-4 py-3 text-sm rounded outline-none"
-                    style={{ border: '1px solid var(--border)', background: 'var(--paper)' }}
-                    onFocus={(e) => (e.target.style.borderColor = '#7C5CFC')}
-                    onBlur={(e) => (e.target.style.borderColor = 'var(--border)')}
+                    className="input"
                   />
                 </div>
               ))}
+
               <div className="flex gap-3 pt-2">
                 <button
                   type="button"
                   onClick={() => setShowForm(false)}
-                  className="flex-1 py-3 rounded text-sm font-medium"
-                  style={{ border: '1px solid var(--border)' }}
+                  className="btn btn-ghost flex-1 justify-center"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={submitting}
-                  className="flex-1 py-3 rounded text-sm font-semibold"
-                  style={{ background: 'var(--ink)', color: '#fff' }}
+                  className="btn btn-primary flex-1 justify-center"
                 >
-                  {submitting ? 'Creating...' : 'Create Command'}
+                  {submitting ? (
+                    <>
+                      <Loader2 size={13} className="animate-spin" />
+                      Creating...
+                    </>
+                  ) : (
+                    "Create Command"
+                  )}
                 </button>
               </div>
             </form>
@@ -414,5 +728,5 @@ export default function SupervisorPage() {
         </div>
       )}
     </DashboardLayout>
-  )
+  );
 }

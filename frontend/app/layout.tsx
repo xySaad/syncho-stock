@@ -1,13 +1,17 @@
-import type { Metadata } from 'next'
-import './globals.css'
-import { Toaster } from 'react-hot-toast'
+import type { Metadata } from "next";
+import "./globals.css";
+import { Toaster } from "react-hot-toast";
 
 export const metadata: Metadata = {
-  title: 'Syncho Stock',
-  description: 'Smart inventory management with AI',
-}
+  title: "Syncho Stock",
+  description: "Smart inventory management with AI",
+};
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default function RootLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   return (
     <html lang="en">
       <body>
@@ -16,18 +20,21 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           position="bottom-right"
           toastOptions={{
             style: {
-              background: '#0D0D0F',
-              color: '#F5F2ED',
-              fontFamily: "'DM Sans', sans-serif",
-              fontSize: '14px',
-              borderRadius: '4px',
-              border: '1px solid #2a2a2a',
+              background: "#161625",
+              color: "#EEEEF5",
+              fontFamily: "'Outfit', sans-serif",
+              fontSize: "13px",
+              borderRadius: "8px",
+              border: "1px solid #2E2E48",
+              boxShadow: "0 8px 32px rgba(0,0,0,0.4)",
             },
-            success: { iconTheme: { primary: '#2A9D5C', secondary: '#F5F2ED' } },
-            error: { iconTheme: { primary: '#E84C2E', secondary: '#F5F2ED' } },
+            success: {
+              iconTheme: { primary: "#10B981", secondary: "#EEEEF5" },
+            },
+            error: { iconTheme: { primary: "#F43F5E", secondary: "#EEEEF5" } },
           }}
         />
       </body>
     </html>
-  )
+  );
 }
