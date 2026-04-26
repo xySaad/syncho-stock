@@ -14,19 +14,19 @@ A full-stack inventory management platform with role-based access, AI-powered OC
                                                       │
                                                       ▼
                                             ┌─────────────────┐
-                                            │  Anthropic API  │
-                                            │  (Claude Vision │
-                                            │  + AI Reports)  │
+                                            │   Ai Vision     |
+                                            |        +        │
+                                            │   AI Reports    │
                                             └─────────────────┘
 ```
 
 ## Roles & Features
 
-| Role | Capabilities |
-|------|-------------|
-| **Worker** | Scan receipts (OCR via AI), validate/reject commands from supervisor |
-| **Inventory Accountant** | View all receipts, generate AI buys/sells reports |
-| **Supervisor** | Full access: stock, receipts, commands, create orders, AI recommendations & stock analysis |
+| Role                     | Capabilities                                                                               |
+| ------------------------ | ------------------------------------------------------------------------------------------ |
+| **Worker**               | Scan receipts (OCR via AI), validate/reject commands from supervisor                       |
+| **Inventory Accountant** | View all receipts, generate AI buys/sells reports                                          |
+| **Supervisor**           | Full access: stock, receipts, commands, create orders, AI recommendations & stock analysis |
 
 ---
 
@@ -35,7 +35,7 @@ A full-stack inventory management platform with role-based access, AI-powered OC
 - **Backend**: Go 1.21 + Gin framework
 - **Frontend**: Next.js 14 + TypeScript + Tailwind CSS
 - **Database**: PostgreSQL 16
-- **AI**: Anthropic Claude (vision OCR + text analysis)
+- **AI**: vision OCR + text analysis
 - **Real-time**: WebSocket (gorilla/websocket)
 - **Auth**: JWT tokens
 
@@ -71,11 +71,13 @@ Then open http://localhost:3000
 ### 3. Manual Setup
 
 **Database:**
+
 ```bash
 createdb inventory
 ```
 
 **Backend:**
+
 ```bash
 cd backend
 go mod tidy
@@ -85,6 +87,7 @@ ANTHROPIC_API_KEY=sk-ant-... go run .
 ```
 
 **Frontend:**
+
 ```bash
 cd frontend
 npm install
@@ -96,10 +99,10 @@ NEXT_PUBLIC_API_URL=http://localhost:8080 npm run dev
 
 ## Default Accounts
 
-| Login | Password | Role |
-|-------|----------|------|
-| `admin` | `admin123` | supervisor |
-| `worker1` | `admin123` | worker |
+| Login         | Password   | Role                 |
+| ------------- | ---------- | -------------------- |
+| `admin`       | `admin123` | supervisor           |
+| `worker1`     | `admin123` | worker               |
 | `accountant1` | `admin123` | inventory_accountant |
 
 ---
@@ -107,41 +110,47 @@ NEXT_PUBLIC_API_URL=http://localhost:8080 npm run dev
 ## API Reference
 
 ### Auth
-| Method | Endpoint | Access |
-|--------|----------|--------|
-| POST | `/api/auth/login` | Public |
-| POST | `/api/auth/register` | Public |
-| GET | `/api/me` | All |
+
+| Method | Endpoint             | Access |
+| ------ | -------------------- | ------ |
+| POST   | `/api/auth/login`    | Public |
+| POST   | `/api/auth/register` | Public |
+| GET    | `/api/me`            | All    |
 
 ### Receipts
-| Method | Endpoint | Access | Description |
-|--------|----------|--------|-------------|
-| POST | `/api/receipts` | Worker, Supervisor | Upload image → AI OCR → store |
-| GET | `/api/receipts` | All | List all receipts |
+
+| Method | Endpoint        | Access             | Description                   |
+| ------ | --------------- | ------------------ | ----------------------------- |
+| POST   | `/api/receipts` | Worker, Supervisor | Upload image → AI OCR → store |
+| GET    | `/api/receipts` | All                | List all receipts             |
 
 ### Commands
-| Method | Endpoint | Access | Description |
-|--------|----------|--------|-------------|
-| GET | `/api/commands` | All | List all commands |
-| POST | `/api/command` | Supervisor | Create order command |
-| POST | `/api/commands/:id/validate` | Worker | Validate or reject command |
+
+| Method | Endpoint                     | Access     | Description                |
+| ------ | ---------------------------- | ---------- | -------------------------- |
+| GET    | `/api/commands`              | All        | List all commands          |
+| POST   | `/api/command`               | Supervisor | Create order command       |
+| POST   | `/api/commands/:id/validate` | Worker     | Validate or reject command |
 
 ### Stock
-| Method | Endpoint | Access |
-|--------|----------|--------|
-| GET | `/api/stock` | All |
+
+| Method | Endpoint     | Access |
+| ------ | ------------ | ------ |
+| GET    | `/api/stock` | All    |
 
 ### AI Endpoints
-| Method | Endpoint | Access | Description |
-|--------|----------|--------|-------------|
-| GET | `/api/recommendation` | Supervisor | AI restocking recommendations |
-| GET | `/api/analysis` | Supervisor | AI stock health analysis |
-| GET | `/api/report` | Accountant, Supervisor | AI buys/sells report |
+
+| Method | Endpoint              | Access                 | Description                   |
+| ------ | --------------------- | ---------------------- | ----------------------------- |
+| GET    | `/api/recommendation` | Supervisor             | AI restocking recommendations |
+| GET    | `/api/analysis`       | Supervisor             | AI stock health analysis      |
+| GET    | `/api/report`         | Accountant, Supervisor | AI buys/sells report          |
 
 ### WebSocket
-| Endpoint | Access | Events |
-|----------|--------|--------|
-| `GET /api/ws` | All | `new_receipt`, `new_command`, `command_updated` |
+
+| Endpoint      | Access | Events                                          |
+| ------------- | ------ | ----------------------------------------------- |
+| `GET /api/ws` | All    | `new_receipt`, `new_command`, `command_updated` |
 
 ---
 
@@ -159,20 +168,22 @@ commands   (id, name, quantity, price, date, status, created_at)
 ## Environment Variables
 
 ### Backend
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `DB_HOST` | localhost | PostgreSQL host |
-| `DB_PORT` | 5432 | PostgreSQL port |
-| `DB_USER` | postgres | DB username |
-| `DB_PASSWORD` | postgres | DB password |
-| `DB_NAME` | inventory | DB name |
-| `JWT_SECRET` | supersecretkey | JWT signing secret |
-| `ANTHROPIC_API_KEY` | - | **Required** for AI features |
-| `PORT` | 8080 | Server port |
+
+| Variable            | Default        | Description                  |
+| ------------------- | -------------- | ---------------------------- |
+| `DB_HOST`           | localhost      | PostgreSQL host              |
+| `DB_PORT`           | 5432           | PostgreSQL port              |
+| `DB_USER`           | postgres       | DB username                  |
+| `DB_PASSWORD`       | postgres       | DB password                  |
+| `DB_NAME`           | inventory      | DB name                      |
+| `JWT_SECRET`        | supersecretkey | JWT signing secret           |
+| `ANTHROPIC_API_KEY` | -              | **Required** for AI features |
+| `PORT`              | 8080           | Server port                  |
 
 ### Frontend
-| Variable | Default | Description |
-|----------|---------|-------------|
+
+| Variable              | Default               | Description |
+| --------------------- | --------------------- | ----------- |
 | `NEXT_PUBLIC_API_URL` | http://localhost:8080 | Backend URL |
 
 ---
@@ -186,7 +197,7 @@ app/
 │   ├── go.mod
 │   ├── Dockerfile
 │   ├── ai/
-│   │   └── claude.go        # Anthropic API (OCR, recommendations, analysis)
+│   │   └── ai.go        # OCR, recommendations, analysis
 │   ├── db/
 │   │   └── db.go            # PostgreSQL connection + migrations
 │   ├── handlers/
