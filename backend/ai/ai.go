@@ -11,13 +11,12 @@ import (
 	"image/png"
 	"io"
 	"log"
-	"math"
 	"net/http"
 	"os"
 	"os/exec"
-	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	_ "golang.org/x/image/webp"
 )
@@ -207,13 +206,155 @@ func cleanJSON(raw string) string {
 		raw = strings.TrimPrefix(raw, fence)
 	}
 	raw = strings.TrimSuffix(raw, "```")
-	// Find the first '{' and last '}' to be safe.
-	start := strings.Index(raw, "{")
-	end := strings.LastIndex(raw, "}")
-	if start != -1 && end != -1 && end > start {
-		raw = raw[start : end+1]
+
+	startObj := strings.Index(raw, "{")
+	startArr := strings.Index(raw, "[")
+
+	start := -1
+	if startObj == -1 {
+		start = startArr
+	} else if startArr == -1 {
+		start = startObj
+	} else if startObj < startArr {
+		start = startObj
+	} else {
+		start = startArr
+	}
+
+	if start != -1 {
+		var end int
+		if raw[start] == '[' {
+			end = strings.LastIndex(raw, "]")
+		} else {
+			end = strings.LastIndex(raw, "}")
+		}
+		if end != -1 && end > start {
+			raw = raw[start : end+1]
+		}
 	}
 	return strings.TrimSpace(raw)
+}
+
+func toStringValue(v interface{}) string {
+	switch value := v.(type) {
+	case string:
+		return strings.TrimSpace(value)
+	default:
+		return ""
+	}
+}
+
+func normalizeItemDates(dateValue string) string {
+	if strings.TrimSpace(dateValue) == "" {
+		return time.Now().Format("2006-01-02")
+	}
+	if d, err := time.Parse("2006-01-02", dateValue); err == nil {
+		return d.Format("2006-01-02")
+	}
+	return time.Now().Format("2006-01-02")
+}
+
+func sanitizeExtractedReceiptItems(items []map[string]interface{}, ocrText string) []map[string]interface{} {
+	sanitized := make([]map[string]interface{}, 0, len(items))
+
+	for _, item := range items {
+		if item == nil {
+			continue
+		}
+
+		name := toStringValue(item["name"])
+		if name == "" {
+			continue
+		}
+
+		quantity, okQty := toFloatValue(item["quantity"])
+		if !okQty || quantity <= 0 {
+			quantity = 1
+		}
+
+		// The AI has already validated and corrected unit_price if needed.
+		// Trust unit_price from AI first, fall back to line_total if needed.
+		var price float64
+
+		unitPrice, okUnitPrice := toFloatValue(item["unit_price"])
+		lineTotal, okLineTotal := toFloatValue(item["line_total"])
+
+		// Prefer unit_price (which AI has already corrected if it didn't match line_total)
+		if okUnitPrice {
+			price = unitPrice
+		} else if okLineTotal && quantity > 0 {
+			// Fallback: derive from line_total if unit_price missing
+			price = lineTotal / quantity
+		} else {
+			// Try old "price" field for backward compat
+			p, okPrice := toFloatValue(item["price"])
+			if okPrice && p >= 0 {
+				price = p
+			}
+		}
+
+		if price < 0 {
+			price = 0
+		}
+
+		supplier := toStringValue(item["supplier"])
+		if supplier == "" {
+			supplier = "Unknown"
+		}
+
+		normalized := map[string]interface{}{
+			"name":     name,
+			"quantity": quantity,
+			"price":    price,
+			"supplier": supplier,
+			"date":     normalizeItemDates(toStringValue(item["date"])),
+		}
+
+		sanitized = append(sanitized, normalized)
+	}
+
+	return sanitized
+}
+
+func parseReceiptItemsFromLLM(raw, ocrText string) ([]map[string]interface{}, error) {
+	clean := cleanJSON(raw)
+	log.Printf("[ExtractReceiptData] cleaned JSON: %s", clean)
+
+	var objectResult map[string]interface{}
+	if err := json.Unmarshal([]byte(clean), &objectResult); err == nil {
+		if rawItems, exists := objectResult["items"]; exists {
+			switch itemList := rawItems.(type) {
+			case []interface{}:
+				items := make([]map[string]interface{}, 0, len(itemList))
+				for _, rawItem := range itemList {
+					if itemMap, ok := rawItem.(map[string]interface{}); ok {
+						items = append(items, itemMap)
+					}
+				}
+				sanitized := sanitizeExtractedReceiptItems(items, ocrText)
+				if len(sanitized) > 0 {
+					return sanitized, nil
+				}
+			}
+		}
+
+		if _, hasName := objectResult["name"]; hasName {
+			sanitized := sanitizeExtractedReceiptItems([]map[string]interface{}{objectResult}, ocrText)
+			if len(sanitized) > 0 {
+				return sanitized, nil
+			}
+		}
+	}
+
+	var arrayResult []map[string]interface{}
+	if err := json.Unmarshal([]byte(clean), &arrayResult); err == nil {
+		sanitized := sanitizeExtractedReceiptItems(arrayResult, ocrText)
+		if len(sanitized) > 0 {
+			return sanitized, nil
+		}
+	}
+
+	return nil, fmt.Errorf("could not parse valid receipt items from model output: %s", raw)
 }
 
 func toFloatValue(v interface{}) (float64, bool) {
@@ -281,66 +422,12 @@ func parseLooseNumber(raw string) (float64, error) {
 	return strconv.ParseFloat(s, 64)
 }
 
-func inferReceiptTotal(ocrText string) (float64, bool) {
-	patterns := []string{
-		`(?im)total\s*ht\s*[:=-]?\s*([0-9][0-9\s,\.]+)`,
-		`(?im)total\s*ttc\s*[:=-]?\s*([0-9][0-9\s,\.]+)`,
-		`(?im)total\s*[:=-]?\s*([0-9][0-9\s,\.]+)`,
-	}
-
-	for _, pattern := range patterns {
-		re := regexp.MustCompile(pattern)
-		matches := re.FindStringSubmatch(ocrText)
-		if len(matches) < 2 {
-			continue
-		}
-		v, err := parseLooseNumber(matches[1])
-		if err != nil || v <= 0 {
-			continue
-		}
-		return v, true
-	}
-
-	return 0, false
-}
-
-func normalizeExtractedReceiptValues(result map[string]interface{}, ocrText string) {
-	quantity, okQty := toFloatValue(result["quantity"])
-	price, okPrice := toFloatValue(result["price"])
-	if !okQty || !okPrice || quantity <= 0 || price <= 0 {
-		return
-	}
-
-	if price >= 1 {
-		return
-	}
-
-	total, okTotal := inferReceiptTotal(ocrText)
-	if !okTotal {
-		return
-	}
-
-	inferredUnit := total / quantity
-	if inferredUnit < 1 {
-		return
-	}
-
-	diffRatio := math.Abs(price-inferredUnit) / inferredUnit
-	if diffRatio < 0.5 {
-		return
-	}
-
-	corrected := math.Round(inferredUnit*100) / 100
-	log.Printf("[ExtractReceiptData] corrected suspicious price from %.6f to %.2f using total %.2f / qty %.2f", price, corrected, total, quantity)
-	result["price"] = corrected
-}
-
 // ExtractReceiptData extracts structured data from a receipt image (base64).
 //
 // Pipeline:
 //  1. Decode base64 → raw image bytes
 //  2. Run Tesseract OCR → plain text
-//  3. Send OCR text to Groq/Llama → JSON
+//  3. Send OCR text to Groq/Llama → JSON (with AI-side line_total validation)
 func ExtractReceiptData(base64Image, mediaType string) (map[string]interface{}, error) {
 	log.Printf("[ExtractReceiptData] START  mediaType=%q  b64Len=%d", mediaType, len(base64Image))
 
@@ -367,19 +454,29 @@ RESPOND ONLY WITH VALID JSON — no markdown, no code fences, no preamble, no ex
 
 Required JSON schema:
 {
-  "name": "string (product name, capitalize first letter of each word)",
-  "quantity": number (must be > 0, default to 1 if unclear),
-	"price": number (unit price as shown on receipt, same currency as receipt, must be >= 0, strip currency symbols),
-  "supplier": "string (vendor/store name, use 'Unknown' if not found)",
-  "date": "YYYY-MM-DD (use today's date if not found)"
+	"items": [
+		{
+			"name": "string (product name, capitalize first letter of each word)",
+			"quantity": number (must be > 0, default to 1 if unclear),
+			"unit_price": number (unit price as shown on receipt, same currency as receipt, must be >= 0, strip currency symbols),
+			"line_total": number (quantity × unit_price, or the amount column if visible),
+			"supplier": "string (vendor/store name, use 'Unknown' if not found)",
+			"date": "YYYY-MM-DD (use today's date if not found)"
+		}
+	]
 }
 
-Rules:
-- If multiple items are on the receipt, extract only the FIRST/primary item.
-- Clean up product names: remove SKU codes, normalize casing.
-- Prices should be per-unit, not totals. If only total is given, divide by quantity.
-- Never convert currency and never rescale by 100 or 1000 (e.g. 20 must stay 20, not 0.02).
-- Be error-tolerant: extract what you can, use sensible defaults for missing fields.`
+CRITICAL VALIDATION RULES:
+1. Extract quantity, unit_price (unit price column), and line_total (amount/total column) from each line.
+2. ALWAYS validate: unit_price × quantity should equal line_total (within 5% due to rounding).
+3. If unit_price × quantity ≠ line_total:
+   - The unit_price shown on receipt is likely OCR-corrupted (e.g., missing decimal: "1800" should be "18.00")
+   - Calculate the CORRECT unit_price as: line_total ÷ quantity
+   - Return the calculated unit_price in the JSON (the corrected one, not the corrupted OCR value)
+4. Clean up product names: remove SKU codes, normalize casing.
+5. Never convert currency and never rescale by 100 or 1000 (e.g. 20 must stay 20, not 0.02).
+6. Be error-tolerant: extract what you can, use sensible defaults for missing fields.
+7. If nothing is readable, return {"items": []}.`
 
 	userPrompt := fmt.Sprintf("Parse the following receipt text (extracted via OCR) and return a single JSON object.\n\nReceipt text:\n%s", ocrText)
 
@@ -390,16 +487,24 @@ Rules:
 	}
 	log.Printf("[ExtractReceiptData] raw LLM response: %s", raw)
 
-	clean := cleanJSON(raw)
-	log.Printf("[ExtractReceiptData] cleaned JSON: %s", clean)
-
-	var result map[string]interface{}
-	if err := json.Unmarshal([]byte(clean), &result); err != nil {
+	items, err := parseReceiptItemsFromLLM(raw, ocrText)
+	if err != nil {
 		log.Printf("[ExtractReceiptData] JSON PARSE ERROR: %v", err)
 		return nil, fmt.Errorf("JSON parse failed (%w) — raw model output: %s", err, raw)
 	}
+	if len(items) == 0 {
+		return nil, fmt.Errorf("no valid receipt items extracted")
+	}
 
-	normalizeExtractedReceiptValues(result, ocrText)
+	// Convert []map[string]interface{} to []interface{} for storage in result map
+	itemsInterface := make([]interface{}, len(items))
+	for i, item := range items {
+		itemsInterface[i] = item
+	}
+
+	result := map[string]interface{}{
+		"items": itemsInterface,
+	}
 
 	log.Printf("[ExtractReceiptData] SUCCESS: %+v", result)
 	return result, nil

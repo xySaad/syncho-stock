@@ -37,11 +37,22 @@ interface Receipt {
   date: string;
 }
 
+interface UploadReceiptResponse {
+  count?: number;
+  items?: Receipt[];
+  id?: number;
+  name?: string;
+  quantity?: number;
+  price?: number;
+  supplier?: string;
+  date?: string;
+}
+
 const NAV = [{ label: "Receipt Scanner", href: "/worker", icon: "📡" }];
 
 export default function WorkerPage() {
   const [commands, setCommands] = useState<Command[]>([]);
-  const [lastReceipt, setLastReceipt] = useState<Receipt | null>(null);
+  const [lastReceipts, setLastReceipts] = useState<Receipt[]>([]);
   const [uploading, setUploading] = useState(false);
   const [preview, setPreview] = useState<string | null>(null);
   const [file, setFile] = useState<File | null>(null);
@@ -92,8 +103,18 @@ export default function WorkerPage() {
       const fd = new FormData();
       fd.append("image", file);
       const res = await uploadReceipt(fd);
-      setLastReceipt(res.data);
-      toast.success("Receipt scanned & stored!");
+      const data = res.data as UploadReceiptResponse;
+
+      if (Array.isArray(data.items) && data.items.length > 0) {
+        setLastReceipts(data.items);
+        toast.success(`${data.items.length} receipt items scanned & stored!`);
+      } else if (typeof data.id === "number") {
+        setLastReceipts([data as Receipt]);
+        toast.success("Receipt scanned & stored!");
+      } else {
+        toast.error("Upload succeeded but no items were returned");
+      }
+
       setFile(null);
       setPreview(null);
     } catch (err: unknown) {
@@ -290,7 +311,10 @@ export default function WorkerPage() {
                 <span
                   className="w-2 h-2 rounded-full"
                   style={{
-                    background: lastReceipt ? "var(--success)" : "var(--muted)",
+                    background:
+                      lastReceipts.length > 0
+                        ? "var(--success)"
+                        : "var(--muted)",
                     display: "inline-block",
                   }}
                 />
@@ -301,39 +325,64 @@ export default function WorkerPage() {
                   Extracted Data
                 </span>
               </div>
-              {lastReceipt && (
-                <span className="badge badge-green">Processed</span>
+              {lastReceipts.length > 0 && (
+                <span className="badge badge-green">
+                  {lastReceipts.length} items
+                </span>
               )}
             </div>
 
             <div className="p-5">
-              {lastReceipt ? (
-                <div className="space-y-0">
-                  {[
-                    { label: "Product", value: lastReceipt.name },
-                    { label: "Quantity", value: String(lastReceipt.quantity) },
-                    {
-                      label: "Unit Price",
-                      value: `$${lastReceipt.price.toFixed(2)}`,
-                    },
-                    { label: "Supplier", value: lastReceipt.supplier },
-                    {
-                      label: "Date",
-                      value: new Date(lastReceipt.date).toLocaleDateString(),
-                    },
-                  ].map(({ label, value }) => (
-                    <div
-                      key={label}
-                      className="flex items-center justify-between py-3"
-                      style={{ borderBottom: "1px solid var(--border)" }}
-                    >
-                      <span
-                        className="mono text-xs uppercase tracking-wider"
-                        style={{ color: "var(--muted)" }}
-                      >
-                        {label}
-                      </span>
-                      <span className="font-medium text-sm">{value}</span>
+              {lastReceipts.length > 0 ? (
+                <div className="space-y-6">
+                  {lastReceipts.map((receipt, idx) => (
+                    <div key={idx}>
+                      {idx > 0 && (
+                        <div
+                          className="border-t my-4"
+                          style={{ borderColor: "var(--border)" }}
+                        />
+                      )}
+                      <div className="space-y-0">
+                        {[
+                          {
+                            label: "Product",
+                            value: receipt.name || "Unknown",
+                          },
+                          {
+                            label: "Quantity",
+                            value: String(receipt.quantity || 0),
+                          },
+                          {
+                            label: "Unit Price",
+                            value: `$${(receipt.price ?? 0).toFixed(2)}`,
+                          },
+                          {
+                            label: "Supplier",
+                            value: receipt.supplier || "Unknown",
+                          },
+                          {
+                            label: "Date",
+                            value: receipt.date
+                              ? new Date(receipt.date).toLocaleDateString()
+                              : "Unknown",
+                          },
+                        ].map(({ label, value }) => (
+                          <div
+                            key={label}
+                            className="flex items-center justify-between py-3"
+                            style={{ borderBottom: "1px solid var(--border)" }}
+                          >
+                            <span
+                              className="mono text-xs uppercase tracking-wider"
+                              style={{ color: "var(--muted)" }}
+                            >
+                              {label}
+                            </span>
+                            <span className="font-medium text-sm">{value}</span>
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   ))}
                 </div>

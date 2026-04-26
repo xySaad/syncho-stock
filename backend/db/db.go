@@ -38,8 +38,8 @@ func Connect() {
 }
 
 func Migrate() {
-queries := []string{
-	`CREATE TABLE IF NOT EXISTS users (
+	queries := []string{
+		`CREATE TABLE IF NOT EXISTS users (
 			id SERIAL PRIMARY KEY,
 			login VARCHAR(100) UNIQUE NOT NULL,
 			password_hash TEXT NOT NULL,
@@ -71,9 +71,9 @@ queries := []string{
 			status VARCHAR(50) DEFAULT 'pending',
 			created_at TIMESTAMPTZ DEFAULT NOW()
 		)`,
-	
-	// RECEIPTS (incoming stock)
-	`INSERT INTO receipts (name, quantity, price, supplier, date, image_url) VALUES
+
+		// RECEIPTS (incoming stock)
+		`INSERT INTO receipts (name, quantity, price, supplier, date, image_url) VALUES
 	('Steel Bolts M8', 500, 0.12, 'Atlas Fasteners', '2026-03-01', 'img1.jpg'),
 	('Steel Bolts M8', 300, 0.11, 'Atlas Fasteners', '2026-03-15', 'img2.jpg'),
 	('Aluminum Sheets 2mm', 100, 25.50, 'MetalWorks Ltd', '2026-03-05', 'img3.jpg'),
@@ -85,8 +85,8 @@ queries := []string{
 	('Copper Wire 10m', 180, 9.00, 'ElectroSupply', '2026-04-03', 'img9.jpg'),
 	('Industrial Glue', 200, 3.10, 'ChemSolutions', '2026-04-05', 'img10.jpg');`,
 
-	// STOCK (intentionally imperfect to simulate real-world mismatch)
-	`INSERT INTO stock (name, quantity) VALUES
+		// STOCK (intentionally imperfect to simulate real-world mismatch)
+		`INSERT INTO stock (name, quantity) VALUES
 	('Steel Bolts M8', 900),
 	('Aluminum Sheets 2mm', 95),
 	('Copper Wire 10m', 320),
@@ -94,22 +94,22 @@ queries := []string{
 	('Packaging Boxes Large', 380),
 	('Safety Gloves', 200);`,
 
-	// COMMANDS (outgoing orders)
-	`INSERT INTO commands (name, quantity, price, date, status) VALUES
-	('Steel Bolts M8', 200, 0.25, '2026-03-08', 'completed'),
-	('Steel Bolts M8', 150, 0.26, '2026-03-22', 'completed'),
-	('Aluminum Sheets 2mm', 20, 40.00, '2026-03-25', 'completed'),
-	('Copper Wire 10m', 100, 12.00, '2026-03-28', 'completed'),
-	('Industrial Glue', 80, 5.50, '2026-03-30', 'completed'),
-	('Packaging Boxes Large', 120, 2.00, '2026-04-02', 'completed'),
-	('Safety Gloves', 50, 4.00, '2026-04-04', 'completed'),
+		// COMMANDS (outgoing orders)
+		`INSERT INTO commands (name, quantity, price, date, status) VALUES
+	('Steel Bolts M8', 200, 0.25, '2026-03-08', 'validated'),
+	('Steel Bolts M8', 150, 0.26, '2026-03-22', 'validated'),
+	('Aluminum Sheets 2mm', 20, 40.00, '2026-03-25', 'validated'),
+	('Copper Wire 10m', 100, 12.00, '2026-03-28', 'validated'),
+	('Industrial Glue', 80, 5.50, '2026-03-30', 'validated'),
+	('Packaging Boxes Large', 120, 2.00, '2026-04-02', 'validated'),
+	('Safety Gloves', 50, 4.00, '2026-04-04', 'validated'),
 	('Steel Bolts M8', 300, 0.27, '2026-04-10', 'pending'),
 	('Copper Wire 10m', 120, 12.50, '2026-04-11', 'pending'),
 	('Industrial Glue', 150, 5.60, '2026-04-12', 'pending');`,
 
-	// OPTIONAL: simulate stock loss / mismatch
-	`UPDATE stock SET quantity = quantity - 20 WHERE name = 'Steel Bolts M8';`,
-}
+		// OPTIONAL: simulate stock loss / mismatch
+		`UPDATE stock SET quantity = quantity - 20 WHERE name = 'Steel Bolts M8';`,
+	}
 
 	for _, q := range queries {
 		if _, err := DB.Exec(q); err != nil {
