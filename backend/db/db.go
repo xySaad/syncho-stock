@@ -39,13 +39,39 @@ func Connect() {
 
 func Migrate() {
 queries := []string{
-	// USERS
-	`INSERT INTO users (login, password_hash, role) VALUES
-	('worker1', 'hash_worker1', 'worker'),
-	('worker2', 'hash_worker2', 'worker'),
-	('accountant1', 'hash_accountant1', 'accountant'),
-	('supervisor1', 'hash_supervisor1', 'supervisor');`,
-
+	`CREATE TABLE IF NOT EXISTS users (
+			id SERIAL PRIMARY KEY,
+			login VARCHAR(100) UNIQUE NOT NULL,
+			password_hash TEXT NOT NULL,
+			role VARCHAR(50) NOT NULL DEFAULT 'worker',
+			created_at TIMESTAMPTZ DEFAULT NOW()
+		)`,
+		`CREATE TABLE IF NOT EXISTS receipts (
+			id SERIAL PRIMARY KEY,
+			name VARCHAR(255) NOT NULL,
+			quantity NUMERIC(10,2) NOT NULL DEFAULT 0,
+			price NUMERIC(10,2) NOT NULL DEFAULT 0,
+			supplier VARCHAR(255),
+			date DATE NOT NULL,
+			image_url TEXT,
+			created_at TIMESTAMPTZ DEFAULT NOW()
+		)`,
+		`CREATE TABLE IF NOT EXISTS stock (
+			id SERIAL PRIMARY KEY,
+			name VARCHAR(255) UNIQUE NOT NULL,
+			quantity NUMERIC(10,2) NOT NULL DEFAULT 0,
+			last_updated TIMESTAMPTZ DEFAULT NOW()
+		)`,
+		`CREATE TABLE IF NOT EXISTS commands (
+			id SERIAL PRIMARY KEY,
+			name VARCHAR(255) NOT NULL,
+			quantity NUMERIC(10,2) NOT NULL DEFAULT 0,
+			price NUMERIC(10,2) NOT NULL DEFAULT 0,
+			date DATE NOT NULL,
+			status VARCHAR(50) DEFAULT 'pending',
+			created_at TIMESTAMPTZ DEFAULT NOW()
+		)`,
+	
 	// RECEIPTS (incoming stock)
 	`INSERT INTO receipts (name, quantity, price, supplier, date, image_url) VALUES
 	('Steel Bolts M8', 500, 0.12, 'Atlas Fasteners', '2026-03-01', 'img1.jpg'),

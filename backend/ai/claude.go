@@ -7,29 +7,20 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"strings"
 )
 
 const groqURL = "https://api.groq.com/openai/v1/chat/completions"
 
-const textModel = "llama-3.3-70b-versatile"
-const visionModel = "meta-llama/llama-4-scout-17b-16e-instruct"
-
 type ChatMessage struct {
-	Role    string      `json:"role"`
-	Content interface{} `json:"content"`
-}
-
-type ResponseFormat struct {
-	Type string `json:"type"`
+	Role    string `json:"role"`
+	Content string `json:"content"`
 }
 
 type GroqRequest struct {
-	Model               string         `json:"model"`
-	Messages            []ChatMessage  `json:"messages"`
-	MaxCompletionTokens int            `json:"max_completion_tokens"`
-	Temperature         float64        `json:"temperature"`
-	ResponseFormat      ResponseFormat `json:"response_format,omitempty"`
+	Model       string        `json:"model"`
+	Messages    []ChatMessage `json:"messages"`
+	MaxTokens   int           `json:"max_tokens"`
+	Temperature float64       `json:"temperature"`
 }
 
 type GroqResponse struct {
@@ -40,35 +31,36 @@ type GroqResponse struct {
 	} `json:"choices"`
 }
 
-func call(model string, messages []ChatMessage, maxTokens int, temperature float64, jsonMode bool) (string, error) {
+func call(systemPrompt, userPrompt string, maxTokens int) (string, error) {
+	return callWithTemp(systemPrompt, userPrompt, maxTokens, 0.7)
+}
+
+func callWithTemp(systemPrompt, userPrompt string, maxTokens int, temperature float64) (string, error) {
 	apiKey := os.Getenv("GROQ_API_KEY")
 	if apiKey == "" {
 		return "", fmt.Errorf("GROQ_API_KEY not set")
 	}
 
 	req := GroqRequest{
-		Model:               model,
-		Messages:            messages,
-		MaxCompletionTokens: maxTokens,
-		Temperature:         temperature,
+		Model:       "llama-3.3-70b-versatile",
+		MaxTokens:   maxTokens,
+		Temperature: temperature,
+		Messages: []ChatMessage{
+			{Role: "user", Content: userPrompt},
+		},
 	}
 
-	if jsonMode {
-		req.ResponseFormat = ResponseFormat{Type: "json_object"}
+	if systemPrompt != "" {
+		req.Messages = append([]ChatMessage{{Role: "system", Content: systemPrompt}}, req.Messages...)
 	}
 
-	body, err := json.Marshal(req)
-	if err != nil {
-		return "", err
-	}
-
+	body, _ := json.Marshal(req)
 	httpReq, err := http.NewRequest("POST", groqURL, bytes.NewReader(body))
 	if err != nil {
 		return "", err
 	}
-
 	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Authorization", "Bearer "+apiKey)
+	httpReq.Header.Set("Authorization", fmt.Sprintf("Bearer %s", apiKey))
 
 	resp, err := http.DefaultClient.Do(httpReq)
 	if err != nil {
@@ -77,117 +69,48 @@ func call(model string, messages []ChatMessage, maxTokens int, temperature float
 	defer resp.Body.Close()
 
 	data, _ := io.ReadAll(resp.Body)
-
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("groq API error %d: %s", resp.StatusCode, string(data))
+	if resp.StatusCode != 200 {
+		return "", fmt.Errorf("API error %d: %s", resp.StatusCode, string(data))
 	}
 
 	var r GroqResponse
 	if err := json.Unmarshal(data, &r); err != nil {
 		return "", err
 	}
-
 	if len(r.Choices) == 0 {
-		return "", fmt.Errorf("empty response from Groq")
+		return "", fmt.Errorf("empty response")
 	}
-
-	return strings.TrimSpace(r.Choices[0].Message.Content), nil
+	return r.Choices[0].Message.Content, nil
 }
 
-func textMessages(systemPrompt, userPrompt string) []ChatMessage {
-	return []ChatMessage{
-		{Role: "system", Content: systemPrompt},
-		{Role: "user", Content: userPrompt},
-	}
-}
-
-func imageMessages(systemPrompt, userText, base64Image, mediaType string) []ChatMessage {
-	imageURL := fmt.Sprintf("data:%s;base64,%s", mediaType, base64Image)
-
-	return []ChatMessage{
-		{
-			Role:    "system",
-			Content: systemPrompt,
-		},
-		{
-			Role: "user",
-			Content: []map[string]interface{}{
-				{
-					"type": "text",
-					"text": userText,
-				},
-				{
-					"type": "image_url",
-					"image_url": map[string]string{
-						"url": imageURL,
-					},
-				},
-			},
-		},
-	}
-}
-
-// ExtractReceiptData extracts structured invoice/receipt data from an image.
+// ExtractReceiptData extracts structured data from a receipt image (base64)
 func ExtractReceiptData(base64Image, mediaType string) (map[string]interface{}, error) {
-	systemPrompt := `
-You are an AI invoice and receipt extraction engine for a warehouse stock system.
+	systemPrompt := `You are the SynchroStock AI receipt parser for a warehouse inventory management system.
+Your job is to extract structured product/purchase data from receipt text or OCR output.
 
-Your job:
-1. Decide if the image is a valid purchase invoice, receipt, delivery note, or stock entry document.
-2. Extract only information visible in the image.
-3. Never invent missing values.
-4. Return ONLY valid JSON.
-5. No markdown.
-6. No explanations outside JSON.
+RESPOND ONLY WITH VALID JSON — no markdown, no code fences, no preamble, no explanation.
+
+Required JSON schema:
+{
+  "name": "string (product name, capitalize first letter of each word)",
+  "quantity": number (must be > 0, default to 1 if unclear),
+  "price": number (unit price in USD, must be >= 0, strip currency symbols),
+  "supplier": "string (vendor/store name, use 'Unknown' if not found)",
+  "date": "YYYY-MM-DD (use today's date if not found)"
+}
 
 Rules:
-- If the document is not related to stock, purchasing, receipt, invoice, or delivery, set "is_valid_invoice": false.
-- If a value is missing, unclear, or unreadable, use null.
-- Extract all line items if multiple products exist.
-- Quantities must be numbers.
-- Prices must be numbers.
-- Dates must use YYYY-MM-DD if possible.
-- Confidence values must be between 0 and 1.
-- Add warnings for unclear fields, missing totals, unreadable product names, or suspicious data.
-- Do not calculate values unless the calculation is obvious from visible fields.
+- If multiple items are on the receipt, extract only the FIRST/primary item.
+- Clean up product names: remove SKU codes, normalize casing.
+- Prices should be per-unit, not totals. If only total is given, divide by quantity.
+- Be error-tolerant: extract what you can, use sensible defaults for missing fields.`
 
-Return this exact JSON shape:
-{
-  "is_valid_invoice": true,
-  "document_type": "invoice | receipt | delivery_note | stock_entry | unknown",
-  "invoice_number": null,
-  "supplier": null,
-  "date": null,
-  "currency": null,
-  "items": [
-    {
-      "name": null,
-      "quantity": null,
-      "unit": null,
-      "unit_price": null,
-      "total_price": null,
-      "confidence": 0.0
-    }
-  ],
-  "subtotal": null,
-  "tax": null,
-  "total": null,
-  "warnings": [],
-  "overall_confidence": 0.0
-}
-`
+	userPrompt := fmt.Sprintf(`Parse the following receipt data and return a single JSON object.
 
-	userPrompt := `
-Analyze this warehouse invoice/receipt image.
+Receipt content:
+%s`, base64Image)
 
-Extract structured stock information.
-
-Return JSON only.
-`
-
-	messages := imageMessages(systemPrompt, userPrompt, base64Image, mediaType)
-
-	text, err := call(visionModel, messages, 1200, 0.1, true)
+	text, err := callWithTemp(systemPrompt, userPrompt, 500, 0.2)
 	if err != nil {
 		return nil, err
 	}
@@ -196,121 +119,171 @@ Return JSON only.
 	if err := json.Unmarshal([]byte(text), &result); err != nil {
 		return nil, fmt.Errorf("failed to parse JSON: %v, raw: %s", err, text)
 	}
-
 	return result, nil
 }
 
-// GenerateRecommendation generates restocking recommendations.
+// GenerateRecommendation generates restocking recommendations based on stock data
 func GenerateRecommendation(stockJSON, receiptsJSON string) (string, error) {
-	systemPrompt := `
-You are an inventory optimization assistant for an AI warehouse stock MVP.
+	systemPrompt := `You are SynchroStock AI, the restocking advisor for a warehouse inventory platform.
 
-Your job:
-Analyze current stock and recent receipt history, then create practical restocking recommendations.
+Your audience is a **Supervisor** who needs quick, actionable restocking decisions.
 
-Rules:
-- Use only the provided data.
-- Do not invent missing thresholds.
-- If thresholds are missing, estimate risk based on current quantity and recent movement.
-- Clearly separate urgent, medium, and low priority items.
-- Give specific order quantity suggestions when possible.
-- Explain the reason behind each recommendation.
-- Keep the report clear for a supervisor.
-`
+Data context:
+- Stock items: name, quantity (current units), last_updated
+- Receipts (inbound purchases): name, quantity, price (USD), supplier, date
 
-	userPrompt := fmt.Sprintf(`
-Current stock data:
+Thresholds:
+- quantity < 10 → CRITICAL
+- quantity 10-25 → LOW
+- quantity > 100 → OVERSTOCKED
+
+FORMATTING RULES:
+- DO NOT use markdown tables. Use bullet lists only.
+- Keep each bullet point to ONE short line.
+- Bold item names and key numbers.
+- Be concise — no filler sentences.
+
+Use these exact sections:
+
+## 🚨 Critical — Restock Now
+List each critical item as: **Item Name** — current qty: X → order Y units from Supplier at $Z/unit
+
+## ⚠️ Low Stock — Monitor
+Same format, one bullet per item.
+
+## 📊 Trends
+- Which items are being purchased most frequently?
+- Any items slowing down?
+
+## 💡 Cost Tips
+- Best-price suppliers per item
+- Bulk or timing suggestions
+
+## 📋 Purchase Order Summary
+Bulleted list of what to order, how much, from whom, estimated cost.`
+
+	userPrompt := fmt.Sprintf(`Warehouse data:
+
+Stock:
 %s
 
-Recent receipts / purchases:
+Recent purchases:
 %s
 
-Create a recommendation report with:
+Give your restocking report.`, stockJSON, receiptsJSON)
 
-1. Executive summary
-2. Critical low-stock items
-3. Items that should be monitored
-4. Overstocked or slow-moving items
-5. Suggested order quantities
-6. Cost optimization suggestions
-7. Data quality warnings
-`, stockJSON, receiptsJSON)
-
-	return call(textModel, textMessages(systemPrompt, userPrompt), 1800, 0.4, false)
+	return callWithTemp(systemPrompt, userPrompt, 1500, 0.5)
 }
 
-// GenerateReport generates accountant purchase/sales report.
+// GenerateReport generates a buys/sells analysis report
 func GenerateReport(receiptsJSON, commandsJSON string) (string, error) {
-	systemPrompt := `
-You are a warehouse accountant assistant.
+	systemPrompt := `You are SynchroStock AI, the financial analyst for a warehouse inventory platform.
 
-Your job:
-Generate a clear financial stock movement report based on purchases and outgoing orders.
+Your audience is an **Inventory Accountant** who needs a clear financial summary.
 
-Rules:
-- Use only the provided data.
-- Do not invent missing prices, revenue, profit, or costs.
-- If selling prices are missing, say profitability cannot be calculated accurately.
-- Highlight anomalies such as missing prices, negative stock, unusual quantities, duplicated items, or mismatched totals.
-- Structure the report for a non-technical accountant.
-`
+Terminology:
+- Receipts = INBOUND purchases (goods entering warehouse)
+- Commands = OUTBOUND orders (goods leaving warehouse)
+  - Only "validated" commands count as real outflows
+  - "pending" = awaiting confirmation, "rejected" = cancelled
 
-	userPrompt := fmt.Sprintf(`
-Receipts / purchases / stock inflows:
+FORMATTING RULES:
+- DO NOT use markdown tables. Use bullet lists only.
+- Bold product names and dollar amounts.
+- Keep bullets short — one line each.
+- No filler text or long paragraphs.
+
+Use these exact sections:
+
+## 📥 Purchases (Inflows)
+List each product as: **Product** — qty: X, unit price: **$Y**, total: **$Z**, supplier: Name
+End with: **Total inflow: $X**
+
+## 📤 Orders (Outflows)
+List validated orders same format (no supplier).
+Note: X pending, Y rejected orders excluded.
+End with: **Total outflow: $X**
+
+## 📊 Net Position
+- Inflow: **$X** — Outflow: **$Y** = Net: **$Z**
+
+## 🔄 Turnover
+- Fastest moving items
+- Slowest moving items
+
+## ⚠️ Flags
+- Any price anomalies, unusual volumes, or supplier risks`
+
+	userPrompt := fmt.Sprintf(`Financial data:
+
+Receipts (last 100):
 %s
 
-Commands / orders / stock outflows:
+Commands (last 100):
 %s
 
-Generate a report with:
+Generate the financial report.`, receiptsJSON, commandsJSON)
 
-1. Purchase summary
-2. Outgoing order summary
-3. Item-by-item breakdown
-4. Total purchase value if possible
-5. Total order value if possible
-6. Stock movement analysis
-7. Profitability insights if enough data exists
-8. Anomalies and warnings
-9. Final accountant notes
-`, receiptsJSON, commandsJSON)
-
-	return call(textModel, textMessages(systemPrompt, userPrompt), 2200, 0.4, false)
+	return callWithTemp(systemPrompt, userPrompt, 2000, 0.3)
 }
 
-// AnalyzeStock provides stock analysis for supervisor dashboard.
+// AnalyzeStock provides a comprehensive stock analysis
 func AnalyzeStock(stockJSON string) (string, error) {
-	systemPrompt := `
-You are a warehouse stock control analyst.
+	systemPrompt := `You are SynchroStock AI, the inventory health analyst for a warehouse platform.
 
-Your job:
-Analyze current stock data and produce operational insights.
+Your audience is a **Supervisor** who needs a quick inventory health snapshot.
 
-Rules:
-- Focus on stock risk, low stock, overstock, dead stock, and movement problems.
-- Use simple business language.
-- Give an inventory health score from 1 to 10.
-- Explain the score.
-- Use only the provided data.
-- Do not invent missing values.
-`
+Data: each stock item has name, quantity (current units), last_updated (timestamp).
 
-	userPrompt := fmt.Sprintf(`
-Stock data:
+Thresholds:
+- 0 = OUT OF STOCK
+- < 10 = CRITICALLY LOW
+- 10-25 = LOW
+- 25-75 = HEALTHY
+- 75-150 = HIGH
+- > 150 = OVERSTOCKED
+
+Health Score (1-10): Start at 10. Deduct -2 per out-of-stock, -1 per critical, -0.5 per overstocked. Min 1.
+
+FORMATTING RULES:
+- DO NOT use markdown tables. Use bullet lists only.
+- Bold item names and quantities.
+- One bullet point per item — keep it short.
+- No filler sentences or long paragraphs.
+
+Use these exact sections:
+
+## 🏥 Health Score: X/10
+One sentence explaining why.
+
+## 🚨 Alerts
+List items needing attention:
+- 🔴 **Item** — qty: **X** (out of stock / critically low)
+- 🟡 **Item** — qty: **X** (low)
+If none, say "✅ No critical items."
+
+## 📦 Distribution
+- Out of stock: X items
+- Critical: X items
+- Low: X items
+- Healthy: X items
+- High: X items
+- Overstocked: X items (list names)
+
+## 📈 Freshness
+Are any items stale (not updated recently)? One bullet per finding.
+
+## 📋 Actions
+**This week:**
+- bullet per action
+**This month:**
+- bullet per action`
+
+	userPrompt := fmt.Sprintf(`Stock data:
+
 %s
 
-Provide:
+Give your inventory health analysis.`, stockJSON)
 
-1. Inventory health score from 1 to 10
-2. Score explanation
-3. Critical low-stock alerts
-4. Overstocked items
-5. Dead stock or slow-moving items
-6. Storage optimization suggestions
-7. Short-term recommendations
-8. Long-term recommendations
-9. Data quality warnings
-`, stockJSON)
-
-	return call(textModel, textMessages(systemPrompt, userPrompt), 1800, 0.4, false)
+	return callWithTemp(systemPrompt, userPrompt, 1500, 0.3)
 }
