@@ -1,8 +1,11 @@
 package handlers
 
 import (
+	"database/sql"
 	"encoding/json"
 	"net/http"
+	"sort"
+	"time"
 
 	"inventory-app/ai"
 	"inventory-app/db"
@@ -107,33 +110,189 @@ func GetAnalysis(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"analysis": analysis})
 }
 
+type receiptSummary struct {
+	Name          string  `json:"name"`
+	Entries       int     `json:"entries"`
+	TotalQuantity float64 `json:"total_quantity"`
+	TotalValue    float64 `json:"total_value"`
+	AvgUnitPrice  float64 `json:"avg_unit_price"`
+	Supplier      string  `json:"supplier"`
+	LastDate      string  `json:"last_date"`
+}
+
+type commandSummary struct {
+	Name             string  `json:"name"`
+	ValidatedQty     float64 `json:"validated_qty"`
+	ValidatedValue   float64 `json:"validated_value"`
+	PendingQty       float64 `json:"pending_qty"`
+	RejectedQty      float64 `json:"rejected_qty"`
+	ValidatedEntries int     `json:"validated_entries"`
+	PendingEntries   int     `json:"pending_entries"`
+	RejectedEntries  int     `json:"rejected_entries"`
+	LastDate         string  `json:"last_date"`
+}
+
+func summarizeReceipts(rows *sql.Rows) ([]receiptSummary, error) {
+	type agg struct {
+		Entries       int
+		TotalQuantity float64
+		TotalValue    float64
+		Supplier      string
+		LastDate      time.Time
+		HasDate       bool
+	}
+
+	byName := map[string]*agg{}
+	for rows.Next() {
+		var r models.Receipt
+		if err := rows.Scan(&r.Name, &r.Quantity, &r.Price, &r.Supplier, &r.Date); err != nil {
+			continue
+		}
+		item := byName[r.Name]
+		if item == nil {
+			item = &agg{}
+			byName[r.Name] = item
+		}
+		item.Entries++
+		item.TotalQuantity += r.Quantity
+		item.TotalValue += r.Quantity * r.Price
+		if !item.HasDate || r.Date.After(item.LastDate) {
+			item.LastDate = r.Date
+			item.HasDate = true
+			if r.Supplier != "" {
+				item.Supplier = r.Supplier
+			}
+		}
+		if item.Supplier == "" && r.Supplier != "" {
+			item.Supplier = r.Supplier
+		}
+	}
+
+	result := make([]receiptSummary, 0, len(byName))
+	for name, item := range byName {
+		avg := 0.0
+		if item.TotalQuantity > 0 {
+			avg = item.TotalValue / item.TotalQuantity
+		}
+		lastDate := ""
+		if item.HasDate {
+			lastDate = item.LastDate.Format("2006-01-02")
+		}
+		result = append(result, receiptSummary{
+			Name:          name,
+			Entries:       item.Entries,
+			TotalQuantity: item.TotalQuantity,
+			TotalValue:    item.TotalValue,
+			AvgUnitPrice:  avg,
+			Supplier:      item.Supplier,
+			LastDate:      lastDate,
+		})
+	}
+
+	sort.Slice(result, func(i, j int) bool {
+		if result[i].TotalValue == result[j].TotalValue {
+			return result[i].Name < result[j].Name
+		}
+		return result[i].TotalValue > result[j].TotalValue
+	})
+
+	return result, nil
+}
+
+func summarizeCommands(rows *sql.Rows) ([]commandSummary, error) {
+	type agg struct {
+		ValidatedQty     float64
+		ValidatedValue   float64
+		PendingQty       float64
+		RejectedQty      float64
+		ValidatedEntries int
+		PendingEntries   int
+		RejectedEntries  int
+		LastDate         time.Time
+		HasDate          bool
+	}
+
+	byName := map[string]*agg{}
+	for rows.Next() {
+		var cmd models.Command
+		if err := rows.Scan(&cmd.Name, &cmd.Quantity, &cmd.Price, &cmd.Date, &cmd.Status); err != nil {
+			continue
+		}
+		item := byName[cmd.Name]
+		if item == nil {
+			item = &agg{}
+			byName[cmd.Name] = item
+		}
+		if !item.HasDate || cmd.Date.After(item.LastDate) {
+			item.LastDate = cmd.Date
+			item.HasDate = true
+		}
+		switch cmd.Status {
+		case "validated":
+			item.ValidatedQty += cmd.Quantity
+			item.ValidatedValue += cmd.Quantity * cmd.Price
+			item.ValidatedEntries++
+		case "rejected":
+			item.RejectedQty += cmd.Quantity
+			item.RejectedEntries++
+		default:
+			item.PendingQty += cmd.Quantity
+			item.PendingEntries++
+		}
+	}
+
+	result := make([]commandSummary, 0, len(byName))
+	for name, item := range byName {
+		lastDate := ""
+		if item.HasDate {
+			lastDate = item.LastDate.Format("2006-01-02")
+		}
+		result = append(result, commandSummary{
+			Name:             name,
+			ValidatedQty:     item.ValidatedQty,
+			ValidatedValue:   item.ValidatedValue,
+			PendingQty:       item.PendingQty,
+			RejectedQty:      item.RejectedQty,
+			ValidatedEntries: item.ValidatedEntries,
+			PendingEntries:   item.PendingEntries,
+			RejectedEntries:  item.RejectedEntries,
+			LastDate:         lastDate,
+		})
+	}
+
+	sort.Slice(result, func(i, j int) bool {
+		if result[i].ValidatedValue == result[j].ValidatedValue {
+			return result[i].Name < result[j].Name
+		}
+		return result[i].ValidatedValue > result[j].ValidatedValue
+	})
+
+	return result, nil
+}
+
 func GenerateAccountantReport(c *gin.Context) {
-	receiptRows, err := db.DB.Query(`SELECT name, quantity, price, supplier, date FROM receipts ORDER BY date DESC LIMIT 100`)
+	receiptRows, err := db.DB.Query(`SELECT name, quantity, price, supplier, date FROM receipts ORDER BY date DESC LIMIT 250`)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch receipts data"})
 		return
 	}
 	defer receiptRows.Close()
-	var receipts []models.Receipt
-	for receiptRows.Next() {
-		var r models.Receipt
-		if err := receiptRows.Scan(&r.Name, &r.Quantity, &r.Price, &r.Supplier, &r.Date); err == nil {
-			receipts = append(receipts, r)
-		}
+	receipts, err := summarizeReceipts(receiptRows)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to summarize receipts data"})
+		return
 	}
 
-	cmdRows, err := db.DB.Query(`SELECT name, quantity, price, date, status FROM commands ORDER BY date DESC LIMIT 100`)
+	cmdRows, err := db.DB.Query(`SELECT name, quantity, price, date, status FROM commands ORDER BY date DESC LIMIT 250`)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch commands data"})
 		return
 	}
 	defer cmdRows.Close()
-	var commands []models.Command
-	for cmdRows.Next() {
-		var cmd models.Command
-		if err := cmdRows.Scan(&cmd.Name, &cmd.Quantity, &cmd.Price, &cmd.Date, &cmd.Status); err == nil {
-			commands = append(commands, cmd)
-		}
+	commands, err := summarizeCommands(cmdRows)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to summarize commands data"})
+		return
 	}
 
 	if len(receipts) == 0 && len(commands) == 0 {

@@ -563,8 +563,12 @@ Your audience is an **Inventory Accountant** who needs a clear financial summary
 Terminology:
 - Receipts = INBOUND purchases (goods entering warehouse)
 - Commands = OUTBOUND orders (goods leaving warehouse)
-  - Only "validated" commands count as real outflows
-  - "pending" = awaiting confirmation, "rejected" = cancelled
+	- Only "validated" commands count as real outflows
+	- "pending" = awaiting confirmation, "rejected" = cancelled
+
+Input format:
+- Receipts input is a compact per-product summary with totals, average unit price, supplier, and last date.
+- Commands input is a compact per-product summary with validated/pending/rejected totals and counts.
 
 FORMATTING RULES:
 - DO NOT use markdown tables. Use bullet lists only.
@@ -593,7 +597,7 @@ End with: **Total outflow: $X**
 ## ⚠️ Flags
 - Any price anomalies, unusual volumes, or supplier risks`
 
-	userPrompt := fmt.Sprintf("Financial data:\n\nReceipts (last 100):\n%s\n\nCommands (last 100):\n%s\n\nGenerate the financial report.", receiptsJSON, commandsJSON)
+	userPrompt := fmt.Sprintf("Financial data summaries:\n\nReceipts by product:\n%s\n\nCommands by product:\n%s\n\nGenerate the financial report.", receiptsJSON, commandsJSON)
 	return callWithTemp(systemPrompt, userPrompt, 2000, 0.3)
 }
 
